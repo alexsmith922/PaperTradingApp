@@ -1,8 +1,32 @@
 import SwiftUI
 
 struct TradeHistoryView: View {
+    @EnvironmentObject var portfolioVM: PortfolioViewModel
     @State private var selectedFilter = "All"
     let filters = ["All", "Buys", "Sells"]
+
+    var filteredTrades: [Trade] {
+        switch selectedFilter {
+        case "Buys":
+            return portfolioVM.tradeHistory.filter { $0.type == .buy }
+        case "Sells":
+            return portfolioVM.tradeHistory.filter { $0.type == .sell }
+        default:
+            return portfolioVM.tradeHistory
+        }
+    }
+
+    var groupedTrades: [(date: String, trades: [Trade])] {
+        let grouped = Dictionary(grouping: filteredTrades) { $0.formattedDate }
+        let sorted = grouped.sorted { first, second in
+            guard let firstTrade = first.value.first,
+                  let secondTrade = second.value.first else {
+                return false
+            }
+            return firstTrade.timestamp > secondTrade.timestamp
+        }
+        return sorted.map { (date: $0.key, trades: $0.value) }
+    }
 
     var body: some View {
         NavigationStack {
@@ -12,18 +36,40 @@ struct TradeHistoryView: View {
                     .padding()
 
                 // Trade List
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        TradeSection(date: "Today")
-                        TradeSection(date: "Yesterday")
-                        TradeSection(date: "Dec 28, 2025")
+                if filteredTrades.isEmpty {
+                    emptyStateView
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            ForEach(groupedTrades, id: \.date) { group in
+                                TradeSectionView(date: group.date, trades: group.trades)
+                            }
+                        }
+                        .padding(.horizontal)
                     }
-                    .padding(.horizontal)
                 }
             }
             .background(Color.cardGray)
             .navigationTitle("History")
         }
+    }
+
+    private var emptyStateView: some View {
+        VStack(spacing: 16) {
+            Spacer()
+            Image(systemName: "clock.arrow.circlepath")
+                .font(.system(size: 50))
+                .foregroundColor(Color.textMedium)
+            Text("No trades yet")
+                .font(.headline)
+                .foregroundColor(Color.textDark)
+            Text("Your buy and sell history will appear here")
+                .font(.subheadline)
+                .foregroundColor(Color.textMedium)
+                .multilineTextAlignment(.center)
+            Spacer()
+        }
+        .padding()
     }
 }
 
@@ -36,7 +82,9 @@ struct FilterPillsView: View {
         HStack(spacing: 12) {
             ForEach(filters, id: \.self) { filter in
                 Button(action: {
-                    selectedFilter = filter
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        selectedFilter = filter
+                    }
                 }) {
                     Text(filter)
                         .font(.subheadline.weight(.medium))
@@ -53,8 +101,9 @@ struct FilterPillsView: View {
 }
 
 // MARK: - Trade Section
-struct TradeSection: View {
+struct TradeSectionView: View {
     let date: String
+    let trades: [Trade]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -64,46 +113,11 @@ struct TradeSection: View {
                 .padding(.top, 16)
 
             VStack(spacing: 0) {
-                if date == "Today" {
-                    TradeRow(
-                        symbol: "AAPL",
-                        action: "Bought",
-                        shares: "5 shares",
-                        price: "$178.25",
-                        total: "$891.25",
-                        time: "2:30 PM",
-                        isBuy: true
-                    )
-                } else if date == "Yesterday" {
-                    TradeRow(
-                        symbol: "TSLA",
-                        action: "Sold",
-                        shares: "2 shares",
-                        price: "$242.10",
-                        total: "$484.20",
-                        time: "11:15 AM",
-                        isBuy: false
-                    )
-                    Divider().padding(.horizontal)
-                    TradeRow(
-                        symbol: "NVDA",
-                        action: "Bought",
-                        shares: "3 shares",
-                        price: "$480.50",
-                        total: "$1,441.50",
-                        time: "9:45 AM",
-                        isBuy: true
-                    )
-                } else {
-                    TradeRow(
-                        symbol: "GOOGL",
-                        action: "Bought",
-                        shares: "5 shares",
-                        price: "$141.80",
-                        total: "$709.00",
-                        time: "3:20 PM",
-                        isBuy: true
-                    )
+                ForEach(Array(trades.enumerated()), id: \.element.id) { index, trade in
+                    TradeRowView(trade: trade)
+                    if index < trades.count - 1 {
+                        Divider().padding(.horizontal)
+                    }
                 }
             }
             .background(Color.backgroundWhite)
@@ -113,37 +127,31 @@ struct TradeSection: View {
 }
 
 // MARK: - Trade Row
-struct TradeRow: View {
-    let symbol: String
-    let action: String
-    let shares: String
-    let price: String
-    let total: String
-    let time: String
-    let isBuy: Bool
+struct TradeRowView: View {
+    let trade: Trade
 
     var body: some View {
         HStack(spacing: 12) {
             // Action Icon
             Circle()
-                .fill(isBuy ? Color.gainsGreen.opacity(0.15) : Color.lossesRed.opacity(0.15))
+                .fill(trade.type.isBuy ? Color.gainsGreen.opacity(0.15) : Color.lossesRed.opacity(0.15))
                 .frame(width: 44, height: 44)
                 .overlay(
-                    Image(systemName: isBuy ? "arrow.down.left" : "arrow.up.right")
+                    Image(systemName: trade.type.isBuy ? "arrow.down.left" : "arrow.up.right")
                         .font(.system(size: 16, weight: .bold))
-                        .foregroundColor(isBuy ? Color.gainsGreen : Color.lossesRed)
+                        .foregroundColor(trade.type.isBuy ? Color.gainsGreen : Color.lossesRed)
                 )
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
-                    Text(action)
+                    Text(trade.actionText)
                         .font(.subheadline.weight(.semibold))
-                        .foregroundColor(isBuy ? Color.gainsGreen : Color.lossesRed)
-                    Text(symbol)
+                        .foregroundColor(trade.type.isBuy ? Color.gainsGreen : Color.lossesRed)
+                    Text(trade.symbol)
                         .font(.subheadline.weight(.bold))
                         .foregroundColor(Color.textDark)
                 }
-                Text("\(shares) @ \(price)")
+                Text("\(trade.formattedShares) @ \(trade.formattedPrice)")
                     .font(.caption)
                     .foregroundColor(Color.textMedium)
             }
@@ -151,10 +159,10 @@ struct TradeRow: View {
             Spacer()
 
             VStack(alignment: .trailing, spacing: 4) {
-                Text(isBuy ? "-\(total)" : "+\(total)")
+                Text(trade.type.isBuy ? "-\(trade.formattedTotal)" : "+\(trade.formattedTotal)")
                     .font(.subheadline.weight(.semibold))
                     .foregroundColor(Color.textDark)
-                Text(time)
+                Text(trade.formattedTime)
                     .font(.caption)
                     .foregroundColor(Color.textMedium)
             }
@@ -165,4 +173,5 @@ struct TradeRow: View {
 
 #Preview {
     TradeHistoryView()
+        .environmentObject(PortfolioViewModel())
 }

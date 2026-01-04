@@ -1,10 +1,11 @@
 import SwiftUI
 
 struct ContentView: View {
-    @State private var selectedTab = 0
+    @EnvironmentObject var appState: AppState
+    @EnvironmentObject var tradeVM: TradeViewModel
 
     var body: some View {
-        TabView(selection: $selectedTab) {
+        TabView(selection: $appState.selectedTab) {
             DashboardView()
                 .tabItem {
                     Label("Home", systemImage: "house.fill")
@@ -35,10 +36,19 @@ struct ContentView: View {
                 }
                 .tag(4)
         }
-        .tint(Color.theme.primary)
+        .tint(Color.primaryCoral)
+        .sheet(isPresented: $tradeVM.isShowingTradeSheet) {
+            if let stock = tradeVM.stock {
+                TradeSheetView(stock: stock)
+            }
+        }
     }
 }
 
 #Preview {
     ContentView()
+        .environmentObject(AppState())
+        .environmentObject(PortfolioViewModel())
+        .environmentObject(MarketViewModel())
+        .environmentObject(TradeViewModel())
 }
