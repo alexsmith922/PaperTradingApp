@@ -9,13 +9,32 @@ class AppState: ObservableObject {
     @Published var market: MarketViewModel
     @Published var trade: TradeViewModel
 
+    // MARK: - Services
+    let dataService: DataService?
+
     // MARK: - App State
     @Published var selectedTab: Int = 0
     @Published var isOnboarded: Bool = true  // Set to false for onboarding flow
 
     // MARK: - Initialization
 
+    /// Initialize with DataService for persistence
+    init(dataService: DataService) {
+        self.dataService = dataService
+        self.portfolio = PortfolioViewModel(dataService: dataService)
+        self.market = MarketViewModel(dataService: dataService)
+        self.trade = TradeViewModel()
+
+        // Configure dependencies
+        self.trade.configure(with: portfolio)
+
+        // Sync prices between market and portfolio
+        syncPrices()
+    }
+
+    /// Initialize without persistence (for previews)
     init() {
+        self.dataService = nil
         self.portfolio = PortfolioViewModel()
         self.market = MarketViewModel()
         self.trade = TradeViewModel()

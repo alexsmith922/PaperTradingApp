@@ -16,6 +16,10 @@ class MarketViewModel: ObservableObject {
     @Published var isLoading: Bool = false
     @Published var selectedStock: Stock?
 
+    // MARK: - Persistence
+    private var dataService: DataService?
+    private var userAccount: UserAccount?
+
     // MARK: - Categories
     let categories = ["Tech", "Health", "Finance", "Energy", "Retail", "Auto"]
 
@@ -38,7 +42,16 @@ class MarketViewModel: ObservableObject {
 
     // MARK: - Initialization
 
+    /// Initialize with DataService for persistence
+    init(dataService: DataService) {
+        self.dataService = dataService
+        loadStockData()
+        loadWatchlistFromPersistence()
+    }
+
+    /// Initialize without persistence (for previews)
     init() {
+        self.dataService = nil
         loadSampleData()
     }
 
@@ -70,6 +83,11 @@ class MarketViewModel: ObservableObject {
         guard !watchlistSymbols.contains(stock.symbol) else { return }
         watchlistSymbols.insert(stock.symbol)
         watchlist.append(stock)
+
+        // Persist
+        if let account = userAccount {
+            dataService?.addToWatchlist(account: account, symbol: stock.symbol)
+        }
     }
 
     /// Add stock to watchlist by symbol
@@ -82,12 +100,22 @@ class MarketViewModel: ObservableObject {
     func removeFromWatchlist(_ stock: Stock) {
         watchlistSymbols.remove(stock.symbol)
         watchlist.removeAll { $0.symbol == stock.symbol }
+
+        // Persist
+        if let account = userAccount {
+            dataService?.removeFromWatchlist(account: account, symbol: stock.symbol)
+        }
     }
 
     /// Remove stock from watchlist by symbol
     func removeFromWatchlist(symbol: String) {
         watchlistSymbols.remove(symbol)
         watchlist.removeAll { $0.symbol == symbol }
+
+        // Persist
+        if let account = userAccount {
+            dataService?.removeFromWatchlist(account: account, symbol: symbol)
+        }
     }
 
     /// Toggle watchlist status
@@ -148,6 +176,42 @@ class MarketViewModel: ObservableObject {
 
     // MARK: - Private Methods
 
+    private func loadStockData() {
+        // Load all sample stocks (in real app, this would come from API)
+        allStocks = Stock.sampleStocks + additionalSampleStocks
+
+        // Set trending stocks
+        trendingStocks = Array(allStocks.prefix(5))
+
+        // Update top movers
+        updateTopMovers()
+    }
+
+    private func loadWatchlistFromPersistence() {
+        guard let dataService = dataService else {
+            // No persistence, use defaults
+            let defaultWatchlistSymbols = ["AAPL", "GOOGL", "TSLA"]
+            for symbol in defaultWatchlistSymbols {
+                if let stock = stock(for: symbol) {
+                    watchlistSymbols.insert(symbol)
+                    watchlist.append(stock)
+                }
+            }
+            return
+        }
+
+        let account = dataService.getOrCreateUserAccount()
+        self.userAccount = account
+
+        // Load watchlist from persistence
+        for item in account.watchlistItems {
+            if let stock = stock(for: item.symbol) {
+                watchlistSymbols.insert(item.symbol)
+                watchlist.append(stock)
+            }
+        }
+    }
+
     private func loadSampleData() {
         // Load all sample stocks
         allStocks = Stock.sampleStocks + additionalSampleStocks
@@ -156,7 +220,8 @@ class MarketViewModel: ObservableObject {
         let defaultWatchlistSymbols = ["AAPL", "GOOGL", "TSLA"]
         for symbol in defaultWatchlistSymbols {
             if let stock = stock(for: symbol) {
-                addToWatchlist(stock)
+                watchlistSymbols.insert(symbol)
+                watchlist.append(stock)
             }
         }
 

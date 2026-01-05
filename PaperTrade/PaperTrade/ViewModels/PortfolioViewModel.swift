@@ -11,6 +11,10 @@ class PortfolioViewModel: ObservableObject {
     @Published var isLoading: Bool = false
     @Published var errorMessage: String?
 
+    // MARK: - Persistence
+    private var dataService: DataService?
+    private var userAccount: UserAccount?
+
     // MARK: - Computed Properties
 
     /// Total value of all stock holdings
@@ -80,17 +84,21 @@ class PortfolioViewModel: ObservableObject {
 
     // MARK: - Initialization
 
+    /// Initialize with DataService for persistence
+    init(dataService: DataService) {
+        self.dataService = dataService
+        loadFromPersistence()
+    }
+
+    /// Initialize without persistence (for previews)
     init() {
+        self.dataService = nil
         loadSampleData()
     }
 
     // MARK: - Trading Methods
 
     /// Execute a buy order
-    /// - Parameters:
-    ///   - stock: The stock to buy
-    ///   - shares: Number of shares to buy
-    /// - Returns: Result indicating success or failure reason
     func buy(stock: Stock, shares: Double) -> TradeResult {
         let totalCost = stock.currentPrice * shares
 
@@ -140,14 +148,13 @@ class PortfolioViewModel: ObservableObject {
         )
         tradeHistory.insert(trade, at: 0)
 
+        // Persist changes
+        persistBuy(stock: stock, shares: shares, price: stock.currentPrice)
+
         return .success(trade: trade)
     }
 
     /// Execute a sell order
-    /// - Parameters:
-    ///   - stock: The stock to sell
-    ///   - shares: Number of shares to sell
-    /// - Returns: Result indicating success or failure reason
     func sell(stock: Stock, shares: Double) -> TradeResult {
         // Find the holding
         guard let index = holdings.firstIndex(where: { $0.symbol == stock.symbol }) else {
@@ -190,6 +197,9 @@ class PortfolioViewModel: ObservableObject {
         )
         tradeHistory.insert(trade, at: 0)
 
+        // Persist changes
+        persistSell(stock: stock, shares: shares, price: stock.currentPrice)
+
         return .success(trade: trade)
     }
 
@@ -216,7 +226,6 @@ class PortfolioViewModel: ObservableObject {
     var tradesByDate: [(date: String, trades: [Trade])] {
         let grouped = Dictionary(grouping: tradeHistory) { $0.formattedDate }
         let sorted = grouped.sorted { first, second in
-            // Sort by actual date, most recent first
             guard let firstTrade = first.value.first,
                   let secondTrade = second.value.first else {
                 return false
@@ -224,6 +233,99 @@ class PortfolioViewModel: ObservableObject {
             return firstTrade.timestamp > secondTrade.timestamp
         }
         return sorted.map { (date: $0.key, trades: $0.value) }
+    }
+
+    /// Reset portfolio to starting state
+    func resetPortfolio() {
+        holdings = []
+        cashBalance = User.defaultStartingBalance
+        tradeHistory = []
+
+        // Persist reset
+        if let account = userAccount {
+            dataService?.resetAccount(account: account)
+        }
+    }
+
+    // MARK: - Persistence Methods
+
+    private func loadFromPersistence() {
+        guard let dataService = dataService else {
+            loadSampleData()
+            return
+        }
+
+        let account = dataService.getOrCreateUserAccount()
+        self.userAccount = account
+
+        // Load cash balance
+        cashBalance = account.cashBalance
+
+        // Load holdings (we'll need to fetch current prices separately)
+        holdings = account.holdings.map { persisted in
+            Holding(
+                symbol: persisted.symbol,
+                name: persisted.name,
+                shares: persisted.shares,
+                averageCost: persisted.averageCost,
+                currentPrice: persisted.averageCost // Will be updated with real prices
+            )
+        }
+
+        // Load trade history
+        tradeHistory = account.trades
+            .map { $0.toTrade() }
+            .sorted { $0.timestamp > $1.timestamp }
+    }
+
+    private func persistBuy(stock: Stock, shares: Double, price: Double) {
+        guard let dataService = dataService, let account = userAccount else { return }
+
+        // Update cash balance
+        dataService.updateCashBalance(account: account, newBalance: cashBalance)
+
+        // Add/update holding
+        dataService.addOrUpdateHolding(
+            account: account,
+            symbol: stock.symbol,
+            name: stock.name,
+            shares: shares,
+            price: price
+        )
+
+        // Record trade
+        dataService.recordTrade(
+            account: account,
+            symbol: stock.symbol,
+            name: stock.name,
+            type: .buy,
+            shares: shares,
+            price: price
+        )
+    }
+
+    private func persistSell(stock: Stock, shares: Double, price: Double) {
+        guard let dataService = dataService, let account = userAccount else { return }
+
+        // Update cash balance
+        dataService.updateCashBalance(account: account, newBalance: cashBalance)
+
+        // Reduce holding
+        dataService.reduceHolding(
+            account: account,
+            symbol: stock.symbol,
+            shares: shares
+        )
+
+        // Record trade
+        dataService.recordTrade(
+            account: account,
+            symbol: stock.symbol,
+            name: stock.name,
+            type: .sell,
+            shares: shares,
+            price: price
+        )
     }
 
     // MARK: - Private Methods
@@ -236,18 +338,11 @@ class PortfolioViewModel: ObservableObject {
     }
 
     private func loadSampleData() {
-        // Start with sample portfolio for demo purposes
+        // Start with sample portfolio for demo/preview purposes
         let samplePortfolio = Portfolio.sample
         holdings = samplePortfolio.holdings
         cashBalance = samplePortfolio.cashBalance
         tradeHistory = Trade.sampleTrades
-    }
-
-    /// Reset portfolio to starting state
-    func resetPortfolio() {
-        holdings = []
-        cashBalance = User.defaultStartingBalance
-        tradeHistory = []
     }
 }
 
